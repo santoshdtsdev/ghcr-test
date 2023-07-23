@@ -82,5 +82,5 @@ jobs:
         run: |
           cosign verify ${{ env.IMAGE }}@${{ steps.push-step.outputs.digest }} \
           --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-          --certificate-identity-regexp='^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+          --certificate-identity-regexp=^https://github.com/ghcr-test.*$
         
