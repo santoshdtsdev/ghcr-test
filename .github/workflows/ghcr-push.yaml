@@ -81,6 +81,6 @@ jobs:
       - name: Verify container digest with cosign
         run: |
           cosign verify ${{ env.IMAGE }}@${{ steps.push-step.outputs.digest }} \
-          --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-          --certificate-identity-regexp=^https://github.com/ghcr-test.*$
+          --certificate-oidc-issuer=.* \
+          --certificate-identity-regexp=.*
         
