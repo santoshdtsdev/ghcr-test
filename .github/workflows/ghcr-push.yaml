@@ -1,0 +1,93 @@
+
+name: Push to GHCR and Sign Container Image
+
+on:
+  push:
+    branches:
+      - '*'
+
+jobs:
+  build:
+    env:
+      IMAGE: ghcr.io/santoshdtsdev/ghcr-test
+    permissions:
+      contents: read
+      packages: write
+      # The below permission on our PAT would be used to create the OIDC token for signing the 
+      # Container image after the build process is completed
+      id-token: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+    #Checks out in to the repo we are working on
+      - name: Checkout repository
+        uses: actions/checkout@v3
+   
+   # Install cosign and cosign cli
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.1.1
+        with:
+          cosign-release: 'v2.1.1'
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: '1.20' 
+      - run: go version
+      
+# jq a json parser requried while running commands during gitsign verification
+      - name: 'Setup jq'
+        uses: dcarbone/install-jq-action@v1.0.1
+      - run: jq --version
+
+        
+      - name: Install rekor
+        shell: bash
+        run: go install -v github.com/sigstore/rekor/cmd/rekor-cli@v1.2.2
+
+      - name: Setup Docker buildx
+        uses: docker/setup-buildx-action@v2
+
+# Login to my ghcr account using username and PAT
+      - name: Log into ghcr.io
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+# Builds the image using the Dockerfile present in our repository and pushes the image to registrt of our choice. GHCR in our case
+      - name: Build and push container image
+        id: push-step
+        uses: docker/build-push-action@v4
+        with:
+          push: true
+          # TODO - Change the latest tag to github_sha::8
+        # I've tagged the image to latest
+          tags: |
+            ${{ env.IMAGE }}:latest
+
+# The below command will sign the container image digest following best-practices. As we are
+# pushing to a puclic GitHub Container Regisstry, the signing certificates would be automatically
+# pushed to Rekor transperancy logs.
+
+      - name: Sign the container image
+      # As best practice, inmstead of signingthe pushed tag, I've used the image digest to sign the image
+        run: cosign sign --yes ${{ env.IMAGE }}@${{ steps.push-step.outputs.digest }} 
+
+    # As I've signed in a Keyless mode, I need to provide OIDC provider and an Identity provider to varify the image.
+    # I've used the regex flags provided by the cosign cli command, to varify the image.
+ 
+      - name: Verify container digest with cosign
+        run: |
+          uuid=$(rekor-cli search --artifact <(git rev-parse HEAD | tr -d '\n') | tail -n 1)
+          sig=$(rekor-cli get --uuid=$uuid --format=json | jq -r .Body.HashedRekordObj.signature.content)
+          cert=$(rekor-cli get --uuid=$uuid --format=json | jq -r .Body.HashedRekordObj.signature.publicKey.content)
+          cosign verify-blob --cert <(echo $cert | base64 --decode) --signature <(echo $sig | base64 --decode) <(git rev-parse HEAD | tr -d '\n') \
+          --certificate-oidc-issuer-regexp='^https:\/\/(github\.com\/login\/oauth|accounts\.google\.com|login\.microsoftonline\.com)' \
+          --certificate-identity-regexp='^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+
+          # cosign verify ${{ env.IMAGE }}@${{ steps.push-step.outputs.digest }} \
+          # --certificate-oidc-issuer-regexp='^https:\/\/(github\.com\/login\/oauth|accounts\.google\.com|login\.microsoftonline\.com)' \
+          # --certificate-identity-regexp='^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        
