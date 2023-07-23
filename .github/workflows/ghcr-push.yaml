@@ -80,17 +80,7 @@ jobs:
  
       - name: Verify container digest with cosign
         run: |
-          uuid=$(rekor-cli search --artifact <(git rev-parse HEAD | tr -d '\n') | tail -n 1)
-          echo $uuid
-          sig=$(rekor-cli get --uuid=$uuid --format=json | jq -r .Body.HashedRekordObj.signature.content)
-          echo $sig
-          cert=$(rekor-cli get --uuid=$uuid --format=json | jq -r .Body.HashedRekordObj.signature.publicKey.content)
-          echo $cert
-          cosign verify-blob --cert <(echo $cert | base64 --decode) --signature <(echo $sig | base64 --decode) <(git rev-parse HEAD | tr -d '\n') \
-          --certificate-oidc-issuer-regexp='.*' \
+          cosign verify ${{ env.IMAGE }}@${{ steps.push-step.outputs.digest }} \
+          --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
           --certificate-identity-regexp='^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-
-          # cosign verify ${{ env.IMAGE }}@${{ steps.push-step.outputs.digest }} \
-          # --certificate-oidc-issuer-regexp='^https:\/\/(github\.com\/login\/oauth|accounts\.google\.com|login\.microsoftonline\.com)' \
-          # --certificate-identity-regexp='^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         
